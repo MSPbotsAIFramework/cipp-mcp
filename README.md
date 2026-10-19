@@ -174,6 +174,9 @@ uv run pytest
   `newPassword` is rejected rather than silently ignored.
 - **Cached vs live sizes.** `cipp_list_mailbox_usage` reads CIPP's daily report cache (fast,
   whole tenant, up to 24 h old); `cipp_get_mailbox_usage` reads one mailbox live.
+- **Result size exception (SOP 2.5).** `cipp_list_user_signin_logs` (`top`) and
+  `cipp_list_mailbox_usage` (`limit`) have no paging in the API, so they keep a maximum of 1000
+  (default 50); results are still cut to 20,000 characters with a truncation notice.
 - **Version differences.** `cipp_list_bpa` exists only on older CIPP versions and returns a
   clear `not_found` pointing to `cipp_get_tenant_alignment` otherwise.
 

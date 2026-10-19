@@ -35,7 +35,6 @@ from ._common import (
     is_all_tenants,
     label_value,
     resolve_user,
-    rows,
     run_tool,
 )
 
