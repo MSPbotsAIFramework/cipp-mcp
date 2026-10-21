@@ -45,8 +45,9 @@ How credentials are sent to CIPP: every call is `Authorization: Bearer <token>` 
 flow against Entra ID first; values that look like unresolved templates (`${...}`) are treated
 as missing.
 
-A request to `/mcp` without the required headers gets HTTP 401 listing them; a non-https URL
-gets HTTP 400.
+A request to `/mcp` without the required headers gets HTTP 401 listing them. A non-https URL
+does not block `tools/list`; tool calls then return an `invalid_argument` error and the URL is
+never called.
 
 ## Tools
 

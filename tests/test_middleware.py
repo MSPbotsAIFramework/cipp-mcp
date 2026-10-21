@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Credential middleware: 401/400 on bad headers, per-request isolation."""
+"""Credential middleware: 401 on missing headers, deferred URL errors, per-request isolation."""
 
 import asyncio
 
@@ -19,6 +19,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from cipp_mcp.__main__ import build_http_app
+from cipp_mcp.api_client import CippError
 from cipp_mcp.server import (
     GatewayCredentialsMiddleware,
     _credentials_var,
@@ -69,10 +70,31 @@ def test_missing_credentials_return_401(headers):
         BASE | OAUTH | {"X-Token-Url": "http://login.example.com/token"},
     ],
 )
-def test_non_https_urls_return_400(headers):
+def test_non_https_urls_are_reported_by_tools(headers):
+    call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "cipp_list_tenants", "arguments": {}}}
     with _client() as client:
-        resp = client.post("/mcp", json=LIST_TOOLS, headers=MCP_HEADERS | headers)
-    assert resp.status_code == 400
+        resp = client.post("/mcp", json=call, headers=MCP_HEADERS | headers)
+    assert resp.status_code == 200
+    assert '\\"invalid_argument\\"' in resp.text and "must be https URLs" in resp.text
+
+
+def test_placeholder_headers_still_list_tools():
+    # The admin console refreshes the tool catalog with placeholder header values.
+    names = ["X-Base-Url", "X-Api-Key", "X-Tenant-Id", "X-Client-Id", "X-Client-Secret", "X-Token-Scope", "X-Token-Url", "X-Token-Scope-Fallback"]
+    with _client() as client:
+        resp = client.post("/mcp", json=LIST_TOOLS, headers=MCP_HEADERS | {h: "placeholder" for h in names})
+    assert resp.status_code == 200
+    assert "cipp_list_tenants" in resp.text
+
+
+def test_malformed_url_never_reaches_the_network():
+    seen = _run_middleware([(b"x-base-url", b"http://cipp.example.com"), (b"x-api-key", b"key")])
+    client = seen["client"]
+    assert "must be https URLs" in client.header_error
+    client._http = object()  # any network use would fail loudly
+    with pytest.raises(CippError) as exc:
+        asyncio.run(client.get("ListTenants"))
+    assert exc.value.status_code == 400
 
 
 @pytest.mark.parametrize("auth", [{"X-Api-Key": "key"}, OAUTH])

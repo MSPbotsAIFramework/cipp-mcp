@@ -39,6 +39,7 @@ HEADER_SCOPE_FALLBACK = "X-Token-Scope-Fallback"
 
 _FALSE = re.compile(r"^(0|false|off|no)$", re.IGNORECASE)
 _PLACEHOLDER = re.compile(r"^\$\{.*\}$")
+_INVALID_URL = "https://invalid.example.com"
 
 # Per-request isolation: the middleware sets these for the duration of one
 # HTTP request and resets them in `finally`. Nothing credential-related is
@@ -98,7 +99,8 @@ class GatewayCredentialsMiddleware:
     """Reads the CIPP headers on /mcp requests into the request context.
 
     Needs X-Base-Url plus either X-Api-Key or X-Tenant-Id + X-Client-Id +
-    X-Client-Secret; otherwise 401.
+    X-Client-Secret; otherwise 401. A non-https URL does not block the request
+    (tools/list must work with any values); tools report it and never call it.
     """
 
     def __init__(self, app: ASGIApp):
@@ -119,9 +121,13 @@ class GatewayCredentialsMiddleware:
         api_key = header(HEADER_API_KEY)
         tenant_id, client_id, client_secret = header(HEADER_TENANT_ID), header(HEADER_CLIENT_ID), header(HEADER_CLIENT_SECRET)
 
+        header_error = None
         if base_url == "" or token_url == "":
-            await self._reject(scope, receive, send, 400, "Invalid URL", f"{HEADER_BASE_URL} and {HEADER_TOKEN_URL} must be https URLs")
-            return
+            header_error = f"{HEADER_BASE_URL} and {HEADER_TOKEN_URL} must be https URLs"
+            # Harmless stand-ins so the client can be built; the client refuses
+            # every request while header_error is set.
+            base_url = _INVALID_URL if base_url == "" else base_url
+            token_url = _INVALID_URL if token_url == "" else token_url
         if not base_url or not (api_key or (tenant_id and client_id and client_secret)):
             await JSONResponse(
                 {
@@ -146,6 +152,7 @@ class GatewayCredentialsMiddleware:
             token_scope=header(HEADER_TOKEN_SCOPE),
             token_url=token_url,
             scope_fallback=not (fallback and _FALSE.match(fallback)),
+            header_error=header_error,
         )
         request_id = (request.headers.get("x-request-id") or "").strip()[:64] or uuid.uuid4().hex[:12]
         creds_token = _credentials_var.set(credentials)
@@ -155,10 +162,6 @@ class GatewayCredentialsMiddleware:
         finally:
             _credentials_var.reset(creds_token)
             request_id_var.reset(rid_token)
-
-    @staticmethod
-    async def _reject(scope: Scope, receive: Receive, send: Send, status: int, error: str, message: str) -> None:
-        await JSONResponse({"error": error, "message": message}, status_code=status)(scope, receive, send)
 
 
 def create_mcp_server(settings: Settings | None = None) -> FastMCP:

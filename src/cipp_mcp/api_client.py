@@ -85,6 +85,9 @@ class CippCredentials:
     token_scope: str | None = None
     token_url: str | None = None
     scope_fallback: bool = True
+    # Set when a header value is malformed: tools then return invalid_argument
+    # instead of calling CIPP, while tools/list still works.
+    header_error: str | None = None
 
     @property
     def uses_api_key(self) -> bool:
@@ -105,6 +108,7 @@ class CippClient:
     def __init__(self, credentials: CippCredentials, http_client: httpx.AsyncClient | None = None):
         self._credentials = credentials
         self._http = http_client
+        self.header_error = credentials.header_error
         self.base_url = credentials.base_url.rstrip("/")
         self._tokens: dict[str, str] = {}
 
@@ -173,6 +177,9 @@ class CippClient:
 
     async def request(self, method: str, function: str, params: dict[str, Any] | None = None, body: Any = None) -> Any:
         """Call ``{base}/api/{function}``; retries once with the alternate OAuth scope on 401."""
+        if self.header_error:
+            # A malformed URL header must never reach the network, token request included.
+            raise CippError(400, self.header_error)
         resp = await self._send(method, function, params, body, await self._bearers())
         if (
             resp.status_code == 401
