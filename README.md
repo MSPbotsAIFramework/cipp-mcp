@@ -88,6 +88,8 @@ All tools return a JSON string. `tenantFilter` is a tenant's default domain (for
 | `cipp_list_named_locations` | List conditional access named locations (trusted IP ranges and countries) | **tenantFilter** |
 | `cipp_list_enterprise_apps` | List enterprise applications (service principals) consented in a tenant: name, publisher, created | **tenantFilter**, includeBuiltIn |
 | `cipp_list_domain_health` | Check SPF, DMARC and DKIM records for each custom domain of a tenant | **tenantFilter** |
+| `cipp_get_secure_score` | Get a tenant's Microsoft Secure Score: latest score and percent, peer averages, daily history (newest first) | **tenantFilter** (one tenant, not AllTenants), top (1-90, default 7) |
+| `cipp_list_secure_score_controls` | List a tenant's Secure Score improvement actions by rank: category, max points, user impact, cost, tier, short remediation | **tenantFilter** (one tenant, not AllTenants) |
 | `cipp_list_audit_logs` | List audit-log alert entries CIPP collected for a tenant (sign-in, mailbox rule, admin changes) | **tenantFilter**, days, type |
 | `cipp_list_alert_queue` | List the alert rules and scheduled alert jobs configured in CIPP | - |
 | `cipp_list_standards` | List the standards applied to a tenant and their settings | **tenantFilter** |

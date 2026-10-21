@@ -58,6 +58,8 @@ EXPECTED_TOOLS: dict[str, set[str]] = {
     "cipp_list_named_locations": T,
     "cipp_list_enterprise_apps": T,
     "cipp_list_domain_health": T,
+    "cipp_get_secure_score": T,
+    "cipp_list_secure_score_controls": T,
     "cipp_list_audit_logs": T,
     "cipp_list_alert_queue": set(),
     "cipp_list_standards": T,

@@ -382,3 +382,112 @@ async def test_delete_standard_template_body(monkeypatch):
     rec = Recorder(default={"Results": "Removed"})
     await _call(monkeypatch, rec, "cipp_delete_standard_template", {"templateId": "tpl-1"})
     assert body(rec.calls("RemoveStandardTemplate")[0]) == {"ID": "tpl-1"}
+
+
+SCORES = {
+    "Results": [
+        {
+            "createdDateTime": "2026-06-01T00:00:00Z",
+            "currentScore": 40.0,
+            "maxScore": 80.0,
+            "enabledServices": ["HasExchange"],
+            "averageComparativeScores": [{"basis": "AllTenants", "averageScore": 35.5}],
+            "controlScores": [{"controlName": "MFARegistrationV2", "score": 9.0}],
+        },
+        {
+            "createdDateTime": "2026-06-02T00:00:00Z",
+            "currentScore": 50.0,
+            "maxScore": 80.0,
+            "enabledServices": ["HasExchange"],
+            "averageComparativeScores": [
+                {"basis": "AllTenants", "averageScore": 36.0, "appsScore": 1.0},
+                {"basis": "TotalSeats", "averageScore": 42.0, "seatSizeRangeLowerValue": "1"},
+            ],
+            "controlScores": [{"controlName": "MFARegistrationV2", "score": 10.0}],
+        },
+    ]
+}
+
+
+async def test_secure_score_request_shape_and_summary(monkeypatch):
+    rec = Recorder({"ListGraphRequest": SCORES})
+    result = await _call(monkeypatch, rec, "cipp_get_secure_score", {"tenantFilter": "example.com", "top": 30})
+    params = rec.calls("ListGraphRequest")[0].url.params
+    assert params["tenantFilter"] == "example.com"
+    assert params["Endpoint"] == "/security/secureScores"
+    assert params["$top"] == "30"
+    assert result["latest"] == {
+        "date": "2026-06-02",
+        "currentScore": 50.0,
+        "maxScore": 80.0,
+        "percent": 62.5,
+        "enabledServices": ["HasExchange"],
+    }
+    assert result["comparisons"] == [
+        {"basis": "AllTenants", "averageScore": 36.0},
+        {"basis": "TotalSeats", "averageScore": 42.0},
+    ]
+    assert [h["date"] for h in result["history"]] == ["2026-06-02", "2026-06-01"]
+    assert "controlScores" not in json.dumps(result)
+
+
+async def test_secure_score_defaults_to_seven_snapshots(monkeypatch):
+    rec = Recorder({"ListGraphRequest": SCORES})
+    await _call(monkeypatch, rec, "cipp_get_secure_score", {"tenantFilter": "example.com"})
+    assert rec.calls("ListGraphRequest")[0].url.params["$top"] == "7"
+
+
+async def test_secure_score_empty_collection_is_not_an_error(monkeypatch):
+    rec = Recorder({"ListGraphRequest": {"Results": []}})
+    result = await _call(monkeypatch, rec, "cipp_get_secure_score", {"tenantFilter": "example.com"})
+    assert "error" not in result
+    assert result["latest"] is None
+    assert result["history"] == []
+    assert "No Secure Score" in result["note"]
+
+
+@pytest.mark.parametrize("tool", ["cipp_get_secure_score", "cipp_list_secure_score_controls"])
+async def test_secure_score_tools_reject_all_tenants(monkeypatch, tool):
+    rec = Recorder()
+    result = await _call(monkeypatch, rec, tool, {"tenantFilter": "AllTenants"})
+    assert result["error"]["code"] == "invalid_argument"
+    assert rec.requests == []
+
+
+async def test_secure_score_controls_sorted_by_rank_and_trimmed(monkeypatch):
+    profiles = [
+        {"id": "b", "title": "Second", "controlCategory": "Data", "rank": 20, "maxScore": 5.0, "remediation": "<p>Do   " + "x" * 400 + "</p>"},
+        {"id": "z", "title": "Unranked", "controlCategory": "Apps"},
+        {
+            "id": "a",
+            "title": "First",
+            "controlCategory": "Identity",
+            "rank": 1,
+            "maxScore": 10.0,
+            "userImpact": "Moderate",
+            "implementationCost": "Low",
+            "tier": "Core",
+            "threats": ["Password Cracking"],
+            "deprecated": False,
+            "remediation": "<p>Turn on <b>MFA</b>.</p>",
+            "controlStateUpdates": [{"state": "Default"}],
+        },
+    ]
+    rec = Recorder({"ListGraphRequest": {"Results": profiles}})
+    result = await _call(monkeypatch, rec, "cipp_list_secure_score_controls", {"tenantFilter": "example.com"})
+    params = rec.calls("ListGraphRequest")[0].url.params
+    assert params["tenantFilter"] == "example.com"
+    assert params["Endpoint"] == "/security/secureScoreControlProfiles"
+    assert result["count"] == 3
+    assert [c["id"] for c in result["controls"]] == ["a", "b", "z"]
+    first = result["controls"][0]
+    assert first["category"] == "Identity"
+    assert first["remediation"] == "Turn on MFA."
+    assert "controlStateUpdates" not in first
+    assert len(result["controls"][1]["remediation"]) <= 200
+
+
+async def test_secure_score_controls_empty_collection(monkeypatch):
+    rec = Recorder({"ListGraphRequest": {"Results": []}})
+    result = await _call(monkeypatch, rec, "cipp_list_secure_score_controls", {"tenantFilter": "example.com"})
+    assert result == {"count": 0, "controls": []}
