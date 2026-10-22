@@ -19,56 +19,70 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..api_client import CippClient
-from ._common import READ_ONLY, WRITES, ClientFactory, TenantFilter, compact, interpret_results, run_tool, to_unix_seconds
+from ._common import (
+    READ_ONLY,
+    WRITES,
+    ClientFactory,
+    Limit,
+    Offset,
+    TenantFilter,
+    compact,
+    interpret_results,
+    paged,
+    run_tool,
+    to_unix_seconds,
+)
 
 
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_licenses(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_licenses(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None) -> str:
         """List a tenant's licence SKUs with purchased, assigned and available counts."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListLicenses", {"tenantFilter": tenantFilter})
 
-        return await run_tool("cipp_list_licenses", client_factory, action)
+        return await run_tool("cipp_list_licenses", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_csp_licenses(
         tenantFilter: Annotated[str | None, Field(description="Tenant default domain or id (default AllTenants).")] = None,
+        offset: Offset = None,
+        limit: Limit = None,
     ) -> str:
         """List CSP licence subscriptions bought through the CSP integration for tenants."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListCSPLicenses", {"tenantFilter": tenantFilter or "AllTenants"})
 
-        return await run_tool("cipp_list_csp_licenses", client_factory, action)
+        return await run_tool("cipp_list_csp_licenses", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_gdap_roles() -> str:
+    async def cipp_list_gdap_roles(offset: Offset = None, limit: Limit = None) -> str:
         """List the GDAP role mappings (Entra roles to partner security groups) set up in CIPP."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListGDAPRoles")
 
-        return await run_tool("cipp_list_gdap_roles", client_factory, action)
+        return await run_tool("cipp_list_gdap_roles", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_gdap_invites() -> str:
+    async def cipp_list_gdap_invites(offset: Offset = None, limit: Limit = None) -> str:
         """List GDAP relationship invites created in CIPP and their status."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListGDAPInvite", {"tenantFilter": "AllTenants"})
 
-        return await run_tool("cipp_list_gdap_invites", client_factory, action)
+        return await run_tool("cipp_list_gdap_invites", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_scheduled_items() -> str:
+    async def cipp_list_scheduled_items(offset: Offset = None, limit: Limit = None) -> str:
         """List tasks in CIPP's scheduler: name, command, tenant, next run, state and results."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListScheduledItems")
 
-        return await run_tool("cipp_list_scheduled_items", client_factory, action)
+        return await run_tool("cipp_list_scheduled_items", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=WRITES)
     async def cipp_add_scheduled_item(

@@ -28,12 +28,16 @@ from ._common import (
     WRITES,
     WRITES_IDEMPOTENT,
     ClientFactory,
+    Fields,
+    Limit,
+    Offset,
     TenantFilter,
     UserId,
     compact,
     interpret_results,
     is_all_tenants,
     label_value,
+    paged,
     resolve_user,
     run_tool,
 )
@@ -146,6 +150,9 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             Literal["displayName", "userPrincipalName", "mail"] | None, Field(description="Field to search.")
         ] = None,
         searchValue: Annotated[str | None, Field(description="Value to search for (displayName matches by prefix).")] = None,
+        offset: Offset = None,
+        limit: Limit = None,
+        fields: Fields = None,
     ) -> str:
         """List users of a tenant, optionally searched by display name (prefix), UPN or mail (exact)."""
 
@@ -160,7 +167,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                 )
             return await client.get("ListUsers", params)
 
-        return await run_tool("cipp_list_users", client_factory, action)
+        return await run_tool("cipp_list_users", client_factory, paged(action, offset, limit, fields))
 
     @mcp.tool(annotations=WRITES)
     async def cipp_create_user(
@@ -401,31 +408,31 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         return await run_tool("cipp_bec_check", client_factory, action)
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_mfa_users(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_mfa_users(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None, fields: Fields = None) -> str:
         """List users with their MFA registration and enforcement state (per-user MFA, CA, defaults)."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListMFAUsers", {"tenantFilter": tenantFilter})
 
-        return await run_tool("cipp_list_mfa_users", client_factory, action)
+        return await run_tool("cipp_list_mfa_users", client_factory, paged(action, offset, limit, fields))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_user_devices(tenantFilter: TenantFilter, userId: UserId) -> str:
+    async def cipp_list_user_devices(tenantFilter: TenantFilter, userId: UserId, offset: Offset = None, limit: Limit = None) -> str:
         """List the devices registered to or owned by a user."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListUserDevices", {"tenantFilter": tenantFilter, "UserID": userId})
 
-        return await run_tool("cipp_list_user_devices", client_factory, action)
+        return await run_tool("cipp_list_user_devices", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_user_groups(tenantFilter: TenantFilter, userId: UserId) -> str:
+    async def cipp_list_user_groups(tenantFilter: TenantFilter, userId: UserId, offset: Offset = None, limit: Limit = None) -> str:
         """List the groups a user belongs to."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListUserGroups", {"tenantFilter": tenantFilter, "userId": userId})
 
-        return await run_tool("cipp_list_user_groups", client_factory, action)
+        return await run_tool("cipp_list_user_groups", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_user_signin_logs(

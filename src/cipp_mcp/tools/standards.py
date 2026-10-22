@@ -19,7 +19,19 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..api_client import CippClient, CippError
-from ._common import DESTRUCTIVE_ONCE, READ_ONLY, WRITES, WRITES_IDEMPOTENT, ClientFactory, TenantFilter, rows, run_tool
+from ._common import (
+    DESTRUCTIVE_ONCE,
+    READ_ONLY,
+    WRITES,
+    WRITES_IDEMPOTENT,
+    ClientFactory,
+    Limit,
+    Offset,
+    TenantFilter,
+    paged,
+    rows,
+    run_tool,
+)
 
 OptionalTenant = Annotated[str | None, Field(description="Tenant default domain or id; omit for all tenants.")]
 
@@ -34,13 +46,13 @@ def _row_tenant(row: dict) -> str:
 
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_standards(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_standards(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None) -> str:
         """List the standards applied to a tenant and their settings."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListStandards", {"tenantFilter": tenantFilter})
 
-        return await run_tool("cipp_list_standards", client_factory, action)
+        return await run_tool("cipp_list_standards", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=WRITES_IDEMPOTENT)
     async def cipp_run_standards_check(tenantFilter: TenantFilter) -> str:
@@ -55,13 +67,13 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         return await run_tool("cipp_run_standards_check", client_factory, action)
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_standard_templates() -> str:
+    async def cipp_list_standard_templates(offset: Offset = None, limit: Limit = None) -> str:
         """List the standards templates (id, name, assigned tenants, standards)."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("listStandardTemplates")
 
-        return await run_tool("cipp_list_standard_templates", client_factory, action)
+        return await run_tool("cipp_list_standard_templates", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_get_tenant_drift(tenantFilter: OptionalTenant = None) -> str:
@@ -116,7 +128,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         return await run_tool("cipp_delete_standard_template", client_factory, action)
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_bpa(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_bpa(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None) -> str:
         """Get the Best Practice Analyser report for a tenant (older CIPP versions only).
 
         Newer CIPP replaced it with standards alignment: use cipp_get_tenant_alignment.
@@ -130,4 +142,4 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                     raise CippError(404, "This CIPP version has no Best Practice Analyser; use cipp_get_tenant_alignment.") from e
                 raise
 
-        return await run_tool("cipp_list_bpa", client_factory, action)
+        return await run_tool("cipp_list_bpa", client_factory, paged(action, offset, limit))

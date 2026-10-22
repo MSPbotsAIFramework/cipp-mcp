@@ -22,7 +22,17 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..api_client import CippClient, CippError
-from ._common import READ_ONLY, ClientFactory, TenantFilter, is_all_tenants, rows, run_tool
+from ._common import (
+    READ_ONLY,
+    ClientFactory,
+    Limit,
+    Offset,
+    TenantFilter,
+    is_all_tenants,
+    paged,
+    rows,
+    run_tool,
+)
 
 MICROSOFT_TENANT_ID = "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
 _DNS_CHECKS = {"spf": "ReadSpfRecord", "dmarc": "ReadDmarcPolicy", "dkim": "ReadDkimRecord"}
@@ -127,27 +137,29 @@ def summarize_control_profiles(profiles: list) -> list[dict[str, Any]]:
 
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_conditional_access_policies(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_conditional_access_policies(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None) -> str:
         """List a tenant's conditional access policies with state, conditions and grant controls."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListConditionalAccessPolicies", {"tenantFilter": tenantFilter})
 
-        return await run_tool("cipp_list_conditional_access_policies", client_factory, action)
+        return await run_tool("cipp_list_conditional_access_policies", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_named_locations(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_named_locations(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None) -> str:
         """List conditional access named locations (trusted IP ranges and countries)."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListNamedLocations", {"tenantFilter": tenantFilter})
 
-        return await run_tool("cipp_list_named_locations", client_factory, action)
+        return await run_tool("cipp_list_named_locations", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_enterprise_apps(
         tenantFilter: Annotated[str, Field(description="Tenant default domain or id, or AllTenants.")],
         includeBuiltIn: Annotated[bool | None, Field(description="Include Microsoft's own first-party apps (default false).")] = None,
+        offset: Offset = None,
+        limit: Limit = None,
     ) -> str:
         """List enterprise applications (service principals) consented in a tenant: name, publisher, created."""
 
@@ -161,10 +173,10 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                 params["$filter"] = f"appOwnerOrganizationId ne {MICROSOFT_TENANT_ID}"
             return await client.get("ListGraphRequest", params)
 
-        return await run_tool("cipp_list_enterprise_apps", client_factory, action)
+        return await run_tool("cipp_list_enterprise_apps", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_domain_health(tenantFilter: TenantFilter) -> str:
+    async def cipp_list_domain_health(tenantFilter: TenantFilter, offset: Offset = None, limit: Limit = None) -> str:
         """Check SPF, DMARC and DKIM records for each custom domain of a tenant."""
 
         async def action(client: CippClient) -> list:
@@ -186,7 +198,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
 
             return list(await asyncio.gather(*(one(d) for d in domains)))
 
-        return await run_tool("cipp_list_domain_health", client_factory, action)
+        return await run_tool("cipp_list_domain_health", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_get_secure_score(
@@ -212,7 +224,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         return await run_tool("cipp_get_secure_score", client_factory, action)
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_secure_score_controls(tenantFilter: SingleTenant) -> str:
+    async def cipp_list_secure_score_controls(tenantFilter: SingleTenant, offset: Offset = None, limit: Limit = None) -> str:
         """List a tenant's Secure Score improvement actions, highest priority (lowest rank) first.
 
         Each has category, max points, user impact, cost, tier, deprecated flag and a short remediation.
@@ -226,13 +238,15 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             controls = summarize_control_profiles(rows(payload))
             return {"count": len(controls), "controls": controls}
 
-        return await run_tool("cipp_list_secure_score_controls", client_factory, action)
+        return await run_tool("cipp_list_secure_score_controls", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_audit_logs(
         tenantFilter: Annotated[str, Field(description="Tenant default domain or id, or AllTenants.")],
         days: Annotated[int | None, Field(description="Look back this many days (default 7).", ge=1, le=90)] = None,
         type: Annotated[str | None, Field(description="Only entries whose content mentions this text (e.g. an operation name).")] = None,
+        offset: Offset = None,
+        limit: Limit = None,
     ) -> str:
         """List audit-log alert entries CIPP collected for a tenant (sign-in, mailbox rule, admin changes)."""
 
@@ -243,13 +257,13 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             needle = type.lower()
             return [r for r in rows(payload) if needle in json.dumps(r, ensure_ascii=False, default=str).lower()]
 
-        return await run_tool("cipp_list_audit_logs", client_factory, action)
+        return await run_tool("cipp_list_audit_logs", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_alert_queue() -> str:
+    async def cipp_list_alert_queue(offset: Offset = None, limit: Limit = None) -> str:
         """List the alert rules and scheduled alert jobs configured in CIPP."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListAlertsQueue")
 
-        return await run_tool("cipp_list_alert_queue", client_factory, action)
+        return await run_tool("cipp_list_alert_queue", client_factory, paged(action, offset, limit))

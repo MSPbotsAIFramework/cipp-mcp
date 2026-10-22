@@ -20,7 +20,14 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..api_client import CippClient
-from ._common import READ_ONLY, ClientFactory, run_tool
+from ._common import (
+    READ_ONLY,
+    ClientFactory,
+    Limit,
+    Offset,
+    paged,
+    run_tool,
+)
 
 
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
@@ -46,6 +53,8 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_logs(
         dateFilter: Annotated[str | None, Field(description="Day to read, YYYY-MM-DD or YYYYMMDD (default today).")] = None,
+        offset: Offset = None,
+        limit: Limit = None,
     ) -> str:
         """List CIPP's own activity log (actions run, standards applied, errors) for one day."""
 
@@ -58,4 +67,4 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                 params = {"Filter": True, "DateFilter": day}
             return await client.get("ListLogs", params)
 
-        return await run_tool("cipp_list_logs", client_factory, action)
+        return await run_tool("cipp_list_logs", client_factory, paged(action, offset, limit))

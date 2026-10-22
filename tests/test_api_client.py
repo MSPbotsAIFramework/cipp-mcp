@@ -329,9 +329,9 @@ async def test_domain_health_skips_onmicrosoft_and_isolates_failures(monkeypatch
 
     rec = Recorder({"ListDomains": [{"id": "example.com"}, {"id": "example.onmicrosoft.com"}], "ListDomainHealth": health})
     result = await _call(monkeypatch, rec, "cipp_list_domain_health", {"tenantFilter": "example.com"})
-    assert [d["domain"] for d in result] == ["example.com"]
-    assert result[0]["spf"] == {"record": "ReadSpfRecord"}
-    assert "error" in result[0]["dkim"]
+    assert [d["domain"] for d in result["items"]] == ["example.com"]
+    assert result["items"][0]["spf"] == {"record": "ReadSpfRecord"}
+    assert "error" in result["items"][0]["dkim"]
 
 
 async def test_run_standards_check_puts_tenant_in_query(monkeypatch):
@@ -490,4 +490,81 @@ async def test_secure_score_controls_sorted_by_rank_and_trimmed(monkeypatch):
 async def test_secure_score_controls_empty_collection(monkeypatch):
     rec = Recorder({"ListGraphRequest": {"Results": []}})
     result = await _call(monkeypatch, rec, "cipp_list_secure_score_controls", {"tenantFilter": "example.com"})
-    assert result == {"count": 0, "controls": []}
+    assert (result["controls"], result["count"], result["total"], result["has_more"]) == ([], 0, 0, False)
+
+
+
+# ---- PRD-21054: list tools page locally ------------------------------------------------------
+
+
+def _wide(prefix, count):
+    """Large Graph-like records: many filled fields plus empty ones that are pruned."""
+    return [
+        {"id": f"{prefix}{i:03d}", "displayName": f"Name {i}", "userPrincipalName": f"u{i}@example.com",
+         "notes": "x" * 60, **{f"attr{k}": f"value {k} {i}" for k in range(25)},
+         "mobilePhone": None, "otherMails": [], "onPremisesExtensionAttributes": {}, "jobTitle": ""}
+        for i in range(count)
+    ]
+
+
+async def _walk(monkeypatch, rec, tool, args, key="items"):
+    seen, calls, result = [], 0, {}
+    while True:
+        result = await _call(monkeypatch, rec, tool, args)
+        calls += 1
+        assert "retry_page_size" not in result
+        seen += [r["id"] for r in result[key]]
+        if result.get("next_offset") is None:
+            return seen, calls, result
+        args = args | {"offset": result["next_offset"]}
+        assert calls < 200
+
+
+@pytest.mark.parametrize(
+    "tool,function,args,count",
+    [
+        ("cipp_list_users", "ListUsers", {"tenantFilter": "example.com"}, 194),
+        ("cipp_list_tenants", "ListTenants", {}, 222),
+        ("cipp_list_mailboxes", "ListMailboxes", {"tenantFilter": "example.com"}, 151),
+        ("cipp_list_groups", "ListGroups", {"tenantFilter": "example.com"}, 90),
+    ],
+)
+async def test_list_tools_walk_every_record_with_next_offset(monkeypatch, tool, function, args, count):
+    records = _wide("r", count)
+    rec = Recorder({function: records})
+    seen, calls, _ = await _walk(monkeypatch, rec, tool, args)
+    assert calls > 1  # the records do not fit one response
+    assert seen == [r["id"] for r in records]  # no gaps, no duplicates
+
+
+async def test_secure_score_controls_walk_every_control(monkeypatch):
+    profiles = [{"id": f"c{i:03d}", "title": "t" * 80, "rank": i, "maxScore": 5, "controlCategory": "Identity",
+                 "remediation": "do this " * 30, "implementationCost": "Low", "userImpact": "Low", "tier": "Core"}
+                for i in range(462)]
+    rec = Recorder({"ListGraphRequest": profiles})
+    seen, calls, _ = await _walk(monkeypatch, rec, "cipp_list_secure_score_controls", {"tenantFilter": "example.com"}, "controls")
+    assert calls > 1 and sorted(seen) == sorted(p["id"] for p in profiles) and len(seen) == 462
+
+
+async def test_list_page_drops_empty_values_and_honours_limit_and_fields(monkeypatch):
+    rec = Recorder({"ListUsers": {"Results": _wide("u", 5)}})
+    result = await _call(monkeypatch, rec, "cipp_list_users", {"tenantFilter": "example.com", "offset": 1, "limit": 2})
+    assert [u["id"] for u in result["Results"]] == ["u001", "u002"]
+    assert (result["count"], result["total"], result["has_more"], result["next_offset"]) == (2, 5, True, 3)
+    assert not {"mobilePhone", "otherMails", "onPremisesExtensionAttributes", "jobTitle"} & set(result["Results"][0])
+    slim = await _call(monkeypatch, rec, "cipp_list_users", {"tenantFilter": "example.com", "fields": "id, userPrincipalName"})
+    assert slim["Results"][0] == {"id": "u000", "userPrincipalName": "u0@example.com"}
+
+
+async def test_local_filter_is_applied_before_paging(monkeypatch):
+    groups = [{"id": f"g{i}", "displayName": ("Sales " if i % 2 else "Ops ") + str(i)} for i in range(10)]
+    rec = Recorder({"ListGroups": groups})
+    result = await _call(monkeypatch, rec, "cipp_list_groups", {"tenantFilter": "example.com", "search": "sales", "limit": 3})
+    assert [g["id"] for g in result["items"]] == ["g1", "g3", "g5"]
+    assert (result["total"], result["next_offset"]) == (5, 3)
+
+
+async def test_results_without_a_list_are_returned_as_is(monkeypatch):
+    rec = Recorder({"ListBPA": {"Data": "No BPA data", "Columns": None}})
+    result = await _call(monkeypatch, rec, "cipp_list_bpa", {"tenantFilter": "example.com"})
+    assert result == {"Data": "No BPA data", "Columns": None}

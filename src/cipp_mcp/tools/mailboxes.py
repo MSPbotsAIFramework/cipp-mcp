@@ -25,11 +25,15 @@ from ._common import (
     READ_ONLY,
     WRITES_IDEMPOTENT,
     ClientFactory,
+    Fields,
+    Limit,
+    Offset,
     TenantFilter,
     Upn,
     compact,
     is_all_tenants,
     label_value,
+    paged,
     resolve_user,
     rows,
     run_tool,
@@ -129,6 +133,9 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             Literal["UserMailbox", "SharedMailbox", "RoomMailbox", "EquipmentMailbox"] | None,
             Field(description="Only this mailbox type."),
         ] = None,
+        offset: Offset = None,
+        limit: Limit = None,
+        fields: Fields = None,
     ) -> str:
         """List Exchange mailboxes of a tenant: UPN, display name, type, aliases."""
 
@@ -138,26 +145,26 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                 return payload
             return [m for m in rows(payload) if isinstance(m, dict) and m.get("recipientTypeDetails") == type]
 
-        return await run_tool("cipp_list_mailboxes", client_factory, action)
+        return await run_tool("cipp_list_mailboxes", client_factory, paged(action, offset, limit, fields))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_mailbox_permissions(tenantFilter: TenantFilter, upn: Upn) -> str:
+    async def cipp_list_mailbox_permissions(tenantFilter: TenantFilter, upn: Upn, offset: Offset = None, limit: Limit = None) -> str:
         """List who has full access, send-as or send-on-behalf permission on a mailbox."""
 
         async def action(client: CippClient) -> Any:
             return await client.get("ListmailboxPermissions", {"tenantFilter": tenantFilter, "userId": upn})
 
-        return await run_tool("cipp_list_mailbox_permissions", client_factory, action)
+        return await run_tool("cipp_list_mailbox_permissions", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
-    async def cipp_list_trusted_blocked_senders(tenantFilter: TenantFilter, upn: Upn) -> str:
+    async def cipp_list_trusted_blocked_senders(tenantFilter: TenantFilter, upn: Upn, offset: Offset = None, limit: Limit = None) -> str:
         """List a mailbox's personal trusted (safe) and blocked senders and domains. Empty means none set."""
 
         async def action(client: CippClient) -> Any:
             params = {"tenantFilter": tenantFilter, "UserID": upn, "userPrincipalName": upn}
             return await client.get("ListUserTrustedBlockedSenders", params)
 
-        return await run_tool("cipp_list_trusted_blocked_senders", client_factory, action)
+        return await run_tool("cipp_list_trusted_blocked_senders", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_mailbox_usage(

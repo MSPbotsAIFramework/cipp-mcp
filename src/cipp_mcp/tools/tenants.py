@@ -19,13 +19,23 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..api_client import CippClient
-from ._common import READ_ONLY, ClientFactory, TenantFilter, run_tool
+from ._common import (
+    READ_ONLY,
+    ClientFactory,
+    Limit,
+    Offset,
+    TenantFilter,
+    paged,
+    run_tool,
+)
 
 
 def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_list_tenants(
         allTenants: Annotated[bool | None, Field(description='true adds the "All Tenants" entry at the top.')] = None,
+        offset: Offset = None,
+        limit: Limit = None,
     ) -> str:
         """List the customer tenants managed through CIPP: name, default domain and tenant id."""
 
@@ -33,7 +43,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             params = {"AllTenantSelector": allTenants} if isinstance(allTenants, bool) else {}
             return await client.get("ListTenants", params)
 
-        return await run_tool("cipp_list_tenants", client_factory, action)
+        return await run_tool("cipp_list_tenants", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=READ_ONLY)
     async def cipp_get_tenant_details(tenantFilter: TenantFilter) -> str:

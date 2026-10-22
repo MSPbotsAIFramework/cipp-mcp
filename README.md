@@ -55,6 +55,17 @@ All tools return a JSON string. `tenantFilter` is a tenant's default domain (for
 `example.onmicrosoft.com`) or tenant id from `cipp_list_tenants`; tools that say so accept
 `AllTenants`. `userId` accepts an object id or a UPN.
 
+Paging: CIPP returns a whole list at once, so the `cipp_list_*` tools (except
+`cipp_list_user_signin_logs` and `cipp_list_mailbox_usage`, which keep `top` / `limit`) page it
+here. They take optional `offset` (from 0) and `limit` (default: as many records as fit the
+response size limit) and return `{items, count, total, offset, has_more, next_offset}`. When CIPP
+wraps the list (`Results`, or `controls` for Secure Score controls) that key is kept instead of
+`items`. Pass `next_offset` as `offset` for the next page; when a result is cut to fit the size
+limit, `next_offset` starts right after the last record returned, so nothing is skipped. Empty
+values (`null`, `""`, `[]`, `{}`) are left out of each record. `cipp_list_users`,
+`cipp_list_mfa_users` and `cipp_list_mailboxes` also take `fields` (comma-separated) to return
+only those fields.
+
 | Tool | Purpose | Parameters (required in **bold**) |
 |---|---|---|
 | `cipp_ping` | Check the CIPP instance is reachable (no auth check; use cipp_get_version for that) | - |

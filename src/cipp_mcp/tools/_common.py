@@ -54,6 +54,75 @@ _GUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 _FAILURE = re.compile(r"fail|error|could not|unable|not permitted|already exists|does not exist", re.IGNORECASE)
 
 
+Offset = Annotated[
+    int | None, Field(description="Record position to start from (0-based); pass next_offset from the previous result.", ge=0)
+]
+Limit = Annotated[
+    int | None, Field(description="Records to return (default: as many as fit the response size limit).", ge=1, le=1000)
+]
+Fields = Annotated[
+    str | None, Field(description="Comma-separated record fields to return (default all), e.g. id,displayName,userPrincipalName.")
+]
+
+
+def prune(value: Any) -> Any:
+    """Drop null, empty-string, empty-list and empty-object values (CIPP / Graph records are full of them)."""
+    if isinstance(value, dict):
+        kept = {k: prune(v) for k, v in value.items()}
+        return {k: v for k, v in kept.items() if v not in (None, "", [], {})}
+    if isinstance(value, list):
+        return [prune(v) for v in value]
+    return value
+
+
+def page_rows(payload: Any, offset: int | None, limit: int | None, fields: str | None = None) -> Any:
+    """Page a whole CIPP list locally: CIPP returns every record at once and has no paging.
+
+    Works on a bare array, a {Results: [...]} wrapper or an object's largest list. The result
+    has {items (or that list's key), count, total, offset, has_more, next_offset}; when it is
+    cut to fit the size limit, next_offset continues right after the last record returned.
+    Anything else (a message, a single object) is returned as is.
+    """
+    if isinstance(payload, list):
+        key, rest, records = "items", {}, payload
+    elif isinstance(payload, dict):
+        lists = [k for k, v in payload.items() if isinstance(v, list)]
+        if not lists:
+            return payload
+        key = "Results" if "Results" in lists else max(lists, key=lambda k: len(payload[k]))
+        rest = {k: v for k, v in payload.items() if k != key and k != "count"}
+        records = payload[key]
+    else:
+        return payload
+    wanted = [f.strip() for f in (fields or "").split(",") if f.strip()]
+    if wanted:
+        records = [{f: r.get(f) for f in wanted if f in r} if isinstance(r, dict) else r for r in records]
+    start = offset or 0
+    end = len(records) if limit is None else start + limit
+    shown = [prune(r) for r in records[start:end]]
+    more = start + len(shown) < len(records)
+    return rest | {
+        key: shown,
+        "count": len(shown),
+        "total": len(records),
+        "offset": start,
+        "has_more": more,
+        "next_offset": start + len(shown) if more else None,
+        "_resume": {"key": "next_offset", "start": start},
+    }
+
+
+def paged(
+    action: Callable[[CippClient], Awaitable[Any]], offset: int | None, limit: int | None, fields: str | None = None
+) -> Callable[[CippClient], Awaitable[Any]]:
+    """Wrap a list tool's action so its result is paged with ``page_rows``."""
+
+    async def run(client: CippClient) -> Any:
+        return page_rows(await action(client), offset, limit, fields)
+
+    return run
+
+
 def compact(values: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in values.items() if v is not None}
 

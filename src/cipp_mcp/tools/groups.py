@@ -20,7 +20,19 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
 from ..api_client import CippClient
-from ._common import READ_ONLY, WRITES, ClientFactory, TenantFilter, compact, label_value, rows, run_tool
+from ._common import (
+    READ_ONLY,
+    WRITES,
+    ClientFactory,
+    Limit,
+    Offset,
+    TenantFilter,
+    compact,
+    label_value,
+    paged,
+    rows,
+    run_tool,
+)
 
 
 def group_type(security_enabled: bool | None, mail_enabled: bool | None) -> str:
@@ -42,6 +54,8 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     async def cipp_list_groups(
         tenantFilter: TenantFilter,
         search: Annotated[str | None, Field(description="Text the group's display name contains.")] = None,
+        offset: Offset = None,
+        limit: Limit = None,
     ) -> str:
         """List groups of a tenant: name, type (security, M365, distribution), mail, membership rule."""
 
@@ -52,7 +66,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             needle = search.lower()
             return [g for g in rows(payload) if isinstance(g, dict) and needle in str(g.get("displayName", "")).lower()]
 
-        return await run_tool("cipp_list_groups", client_factory, action)
+        return await run_tool("cipp_list_groups", client_factory, paged(action, offset, limit))
 
     @mcp.tool(annotations=WRITES)
     async def cipp_create_group(
