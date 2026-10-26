@@ -320,6 +320,8 @@ def _apps(n_third_party: int, n_microsoft: int) -> list:
     apps = [{"appId": f"t{i}", "displayName": f"Vendor app {i}", "appOwnerOrganizationId": "11111111-2222"} for i in range(n_third_party)]
     apps += [{"appId": f"m{i}", "displayName": f"Microsoft app {i}", "appOwnerOrganizationId": MS} for i in range(n_microsoft)]
     apps.append({"appId": "upper", "displayName": "Microsoft (upper case id)", "appOwnerOrganizationId": MS.upper()})
+    apps.append({"appId": "corp", "displayName": "Microsoft Photos", "appOwnerOrganizationId": "72f988bf-86f1-41af-91ab-2d7cd011db47"})
+    apps.append({"appId": "msa", "displayName": "Fireflies.ai", "appOwnerOrganizationId": "9188040d-6c67-4c5b-b112-36a304b66dad"})
     apps.append({"appId": "noowner", "displayName": "No owner"})
     return apps
 
@@ -330,14 +332,14 @@ async def test_enterprise_apps_hide_first_party_apps_locally_without_a_graph_fil
     result = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com"})
     params = rec.requests[0].url.params
     assert params["Endpoint"] == "/servicePrincipals" and "$filter" not in params
-    assert [a["appId"] for a in result["items"]] == ["t0", "t1", "t2", "noowner"]
-    assert result["total"] == 4 and result["has_more"] is False
+    assert [a["appId"] for a in result["items"]] == ["t0", "t1", "t2", "msa", "noowner"]
+    assert result["total"] == 5 and result["has_more"] is False
 
 
 async def test_enterprise_apps_include_built_in_returns_everything(monkeypatch):
     rec = Recorder({"ListGraphRequest": _apps(3, 4)})
     result = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com", "includeBuiltIn": True})
-    assert "$filter" not in rec.requests[0].url.params and result["total"] == 9
+    assert "$filter" not in rec.requests[0].url.params and result["total"] == 11
 
 
 async def test_enterprise_apps_page_after_filtering(monkeypatch):
@@ -347,7 +349,7 @@ async def test_enterprise_apps_page_after_filtering(monkeypatch):
         out = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com", "offset": offset, "limit": 10})
         seen += [a["appId"] for a in out["Results"]]
         offset = out.get("next_offset")
-    assert seen == [f"t{i}" for i in range(25)] + ["noowner"]
+    assert seen == [f"t{i}" for i in range(25)] + ["msa", "noowner"]
 
 
 async def test_enterprise_apps_message_payload_is_passed_through(monkeypatch):

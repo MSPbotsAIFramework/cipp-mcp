@@ -35,10 +35,21 @@ from ._common import (
 )
 
 MICROSOFT_TENANT_ID = "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+# Tenants that own Microsoft's first-party apps, as seen on live tenants: Microsoft Services,
+# Microsoft (corporate, e.g. Microsoft Photos), MS Azure Cloud and PRDTRS01 (Graph Explorer / CLI).
+# "Microsoft Accounts" (9188040d-...) is not listed: third-party apps are registered there too.
+MICROSOFT_APP_OWNERS = frozenset(
+    {
+        MICROSOFT_TENANT_ID,
+        "72f988bf-86f1-41af-91ab-2d7cd011db47",
+        "33e01921-4d64-4f8c-a055-5bdaffd5e33d",
+        "cdc5aeea-15c5-4db6-b079-fcadd2505dc2",
+    }
+)
 
 
 def _microsoft_app(app: Any) -> bool:
-    return isinstance(app, dict) and str(app.get("appOwnerOrganizationId") or "").lower() == MICROSOFT_TENANT_ID
+    return isinstance(app, dict) and str(app.get("appOwnerOrganizationId") or "").lower() in MICROSOFT_APP_OWNERS
 _DNS_CHECKS = {"spf": "ReadSpfRecord", "dmarc": "ReadDmarcPolicy", "dkim": "ReadDkimRecord"}
 _REMEDIATION_CHARS = 200
 _TAG = re.compile(r"<[^>]+>")
