@@ -35,6 +35,10 @@ from ._common import (
 )
 
 MICROSOFT_TENANT_ID = "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+
+
+def _microsoft_app(app: Any) -> bool:
+    return isinstance(app, dict) and str(app.get("appOwnerOrganizationId") or "").lower() == MICROSOFT_TENANT_ID
 _DNS_CHECKS = {"spf": "ReadSpfRecord", "dmarc": "ReadDmarcPolicy", "dkim": "ReadDkimRecord"}
 _REMEDIATION_CHARS = 200
 _TAG = re.compile(r"<[^>]+>")
@@ -169,9 +173,14 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
                 "Endpoint": "/servicePrincipals",
                 "$select": "appId,displayName,publisherName,appOwnerOrganizationId,signInAudience,tags,createdDateTime",
             }
-            if not includeBuiltIn:
-                params["$filter"] = f"appOwnerOrganizationId ne {MICROSOFT_TENANT_ID}"
-            return await client.get("ListGraphRequest", params)
+            payload = await client.get("ListGraphRequest", params)
+            listed = isinstance(payload, list) or (isinstance(payload, dict) and isinstance(payload.get("Results"), list))
+            if includeBuiltIn or not listed:
+                return payload
+            # A "ne" filter on servicePrincipals is an advanced Graph query (it needs $count and
+            # ConsistencyLevel: eventual) and fails with HTTP 400, so Microsoft's apps are dropped here.
+            kept = [app for app in rows(payload) if not _microsoft_app(app)]
+            return kept if isinstance(payload, list) else payload | {"Results": kept}
 
         return await run_tool("cipp_list_enterprise_apps", client_factory, paged(action, offset, limit))
 

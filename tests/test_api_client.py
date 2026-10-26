@@ -313,12 +313,47 @@ async def test_mailbox_usage_explains_empty_cache(monkeypatch):
     assert "cipp_get_mailbox_usage" in result["error"]["message"]
 
 
-async def test_enterprise_apps_hide_first_party_apps_by_default(monkeypatch):
-    rec = Recorder()
-    await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com"})
+MS = "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+
+
+def _apps(n_third_party: int, n_microsoft: int) -> list:
+    apps = [{"appId": f"t{i}", "displayName": f"Vendor app {i}", "appOwnerOrganizationId": "11111111-2222"} for i in range(n_third_party)]
+    apps += [{"appId": f"m{i}", "displayName": f"Microsoft app {i}", "appOwnerOrganizationId": MS} for i in range(n_microsoft)]
+    apps.append({"appId": "upper", "displayName": "Microsoft (upper case id)", "appOwnerOrganizationId": MS.upper()})
+    apps.append({"appId": "noowner", "displayName": "No owner"})
+    return apps
+
+
+async def test_enterprise_apps_hide_first_party_apps_locally_without_a_graph_filter(monkeypatch):
+    # PRD-21446: "appOwnerOrganizationId ne ..." is an advanced Graph query and failed with HTTP 400.
+    rec = Recorder({"ListGraphRequest": _apps(3, 4)})
+    result = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com"})
     params = rec.requests[0].url.params
-    assert params["Endpoint"] == "/servicePrincipals"
-    assert params["$filter"] == "appOwnerOrganizationId ne f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+    assert params["Endpoint"] == "/servicePrincipals" and "$filter" not in params
+    assert [a["appId"] for a in result["items"]] == ["t0", "t1", "t2", "noowner"]
+    assert result["total"] == 4 and result["has_more"] is False
+
+
+async def test_enterprise_apps_include_built_in_returns_everything(monkeypatch):
+    rec = Recorder({"ListGraphRequest": _apps(3, 4)})
+    result = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com", "includeBuiltIn": True})
+    assert "$filter" not in rec.requests[0].url.params and result["total"] == 9
+
+
+async def test_enterprise_apps_page_after_filtering(monkeypatch):
+    rec = Recorder({"ListGraphRequest": {"Results": _apps(25, 30)}})
+    seen, offset = [], 0
+    while offset is not None:
+        out = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com", "offset": offset, "limit": 10})
+        seen += [a["appId"] for a in out["Results"]]
+        offset = out.get("next_offset")
+    assert seen == [f"t{i}" for i in range(25)] + ["noowner"]
+
+
+async def test_enterprise_apps_message_payload_is_passed_through(monkeypatch):
+    rec = Recorder({"ListGraphRequest": {"Results": "Could not connect to tenant"}})
+    result = await _call(monkeypatch, rec, "cipp_list_enterprise_apps", {"tenantFilter": "example.com"})
+    assert result == {"Results": "Could not connect to tenant"}
 
 
 async def test_domain_health_skips_onmicrosoft_and_isolates_failures(monkeypatch):
