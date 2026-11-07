@@ -198,6 +198,27 @@ async def test_reset_password_refuses_a_chosen_password(monkeypatch):
     assert rec.requests == []
 
 
+async def test_create_tap_reports_success_with_requested_settings(monkeypatch):
+    rec = Recorder({"ExecCreateTAP": {"Results": ["Temporary Access Pass created: AbCdEfGh1234"]}})
+    args = {"tenantFilter": "example.com", "userId": USER_ID, "lifetimeMinutes": 120, "isUsableOnce": False}
+    result = await _call(monkeypatch, rec, "cipp_create_tap", args)
+    sent = body(rec.calls("ExecCreateTAP")[0])
+    assert sent == {"tenantFilter": "example.com", "userId": USER_ID, "lifetimeMinutes": 120, "isUsableOnce": False}
+    assert result["status"] == "created"
+    assert result["userId"] == USER_ID
+    assert "error" not in result
+
+
+async def test_create_tap_policy_disabled_is_a_distinct_error(monkeypatch):
+    rec = Recorder({"ExecCreateTAP": {
+        "Results": ["Temporary Access Pass is disabled by this tenant's Authentication Methods Policy."]
+    }})
+    args = {"tenantFilter": "example.com", "userId": USER_ID}
+    result = await _call(monkeypatch, rec, "cipp_create_tap", args)
+    assert result["error"]["code"] == "tap_policy_disabled"
+    assert "Temporary Access Pass" in result["error"]["message"]
+
+
 async def test_offboard_user_sends_resolved_upn_and_selected_flags(monkeypatch):
     rec = Recorder({"ListUsers": [USER_ROW], "ExecOffboardUser": {"Results": ["Offboarding task queued"]}})
     args = {
