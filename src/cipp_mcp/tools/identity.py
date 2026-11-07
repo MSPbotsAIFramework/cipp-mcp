@@ -34,6 +34,7 @@ from ._common import (
     TenantFilter,
     UserId,
     compact,
+    error_envelope,
     interpret_results,
     is_all_tenants,
     label_value,
@@ -69,6 +70,14 @@ _OFFBOARD_FLAGS = (
 _PREMIUM = re.compile(
     r"RequestFromNonPremiumTenant|(?:doesn't|does not|don't|do not) have (?:a |an )?premium licen[cs]e|premium licen[cs]e is required",
     re.IGNORECASE,
+)
+# PRD-21977: Microsoft/CIPP does not publicly document the exact wording for a TAP-disabled
+# refusal (tech design OQ3/OQ4) -- best-effort, case-insensitive text match against
+# ExecCreateTAP's Results, corrected once the real text is seen on a live CIPP call
+# (TC-CIPP-402). A failure that doesn't match falls through to the generic "failed" shape
+# every other write tool in this file already returns -- a worse message, not a wrong one.
+_TAP_POLICY_DISABLED = re.compile(
+    r"temporary access pass.*(disab|not enabled|not allowed|turned off)", re.IGNORECASE
 )
 
 
@@ -301,6 +310,52 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             return await client.post("ExecRevokeSessions", body)
 
         return await run_tool("cipp_revoke_sessions", client_factory, action)
+
+    @mcp.tool(annotations=WRITES)
+    async def cipp_create_tap(
+        tenantFilter: TenantFilter,
+        userId: UserId,
+        lifetimeMinutes: Annotated[
+            int | None, Field(description="How long the pass stays valid, in minutes. Omit to use CIPP's default.")
+        ] = None,
+        isUsableOnce: Annotated[
+            bool | None, Field(description="True (default): the pass can only be used for one sign-in.")
+        ] = None,
+    ) -> str:
+        """Create a Temporary Access Pass (TAP) for a user's first sign-in, no password needed.
+
+        Lets a new hire sign in and set their own password without a technician resetting
+        or handing over a password. CIPP reports the pass as text, not a structured field.
+        tap_policy_disabled (not a generic failure) if the tenant has TAP turned off.
+        Listing/removing a pass is not available through CIPP's API yet. Changes the
+        tenant: only when the user explicitly asks.
+        """
+
+        async def action(client: CippClient) -> Any:
+            body = compact({
+                "tenantFilter": tenantFilter,
+                "userId": userId,
+                "lifetimeMinutes": lifetimeMinutes,
+                "isUsableOnce": isUsableOnce,
+            })
+            payload = await client.post("ExecCreateTAP", body)
+            results, _ = interpret_results(payload)
+            # Checked against every result line, not just the ones _FAILURE already
+            # flags: CIPP's policy-disabled wording ("disabled by ... Policy") does not
+            # itself contain any of _FAILURE's fail/error/could not/... substrings, so a
+            # real refusal would otherwise read as success.
+            disabled = next((r for r in results if _TAP_POLICY_DISABLED.search(r)), None)
+            if disabled is not None:
+                return error_envelope("tap_policy_disabled", disabled, False)
+            return _outcome(
+                payload,
+                "created",
+                f"Temporary Access Pass created for {userId} in {tenantFilter}.",
+                f"CIPP returned HTTP 200 but reported failures creating a TAP for {userId}",
+                userId=userId,
+            )
+
+        return await run_tool("cipp_create_tap", client_factory, action)
 
     @mcp.tool(annotations=DESTRUCTIVE_ONCE)
     async def cipp_offboard_user(

@@ -152,6 +152,7 @@ only those fields.
 | `cipp_reset_password` | Reset a user's password; CIPP generates the new one and returns it (**write**) | **tenantFilter**, **userId**, newPassword |
 | `cipp_reset_mfa` | Remove a user's registered MFA methods so they must register again (**write**) | **tenantFilter**, **userId** |
 | `cipp_revoke_sessions` | Sign a user out everywhere by revoking all refresh tokens (**write**) | **tenantFilter**, **userId** |
+| `cipp_create_tap` | Create a Temporary Access Pass (TAP) for a user's first sign-in, no password needed (**write**) | **tenantFilter**, **userId**, lifetimeMinutes, isUsableOnce |
 | `cipp_offboard_user` | Queue an offboarding job for a leaver with the chosen steps (disable, licences, mailbox, ...) (**write**) | **tenantFilter**, **userId**, DisableSignIn, RevokeSessions, ResetPass, RemoveLicenses, RemoveGroups, RemoveMFADevices, RemoveMobile, RemoveRules, RemoveTeamsPhoneDID, removeCalendarInvites, removePermissions, removeCalendarPermissions, ConvertToShared, HideFromGAL, disableForwarding, DisableOneDriveSharing, ClearImmutableId, DeleteUser, forward, KeepCopy, OOO, AccessAutomap, AccessNoAutomap, OnedriveAccess |
 | `cipp_bec_check` | Run a business-email-compromise check for a user (rules, sign-ins, MFA changes, ...) | **tenantFilter**, **userId**, guid |
 | `cipp_list_mfa_users` | List users with their MFA registration and enforcement state (per-user MFA, CA, defaults) | **tenantFilter** |
@@ -189,6 +190,10 @@ only those fields.
 | `cipp_list_gdap_invites` | List GDAP relationship invites created in CIPP and their status | - |
 | `cipp_list_scheduled_items` | List tasks in CIPP's scheduler: name, command, tenant, next run, state and results | - |
 | `cipp_add_scheduled_item` | Schedule a CIPP command to run once or on a recurrence (**write**) | **taskName**, **command**, **scheduledTime**, recurrence, tenantFilter, parameters |
+
+`cipp_create_tap` only creates a pass: CIPP's public API (`ExecCreateTAP`) has no List/Remove
+Temporary Access Pass action, so listing or deleting an existing pass is not available through
+this connector yet.
 
 Errors come back as a JSON envelope instead of an exception:
 
