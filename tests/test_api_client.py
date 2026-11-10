@@ -219,6 +219,21 @@ async def test_create_tap_policy_disabled_is_a_distinct_error(monkeypatch):
     assert "Temporary Access Pass" in result["error"]["message"]
 
 
+async def test_create_tap_policy_disabled_matches_reordered_wording(monkeypatch):
+    """PRD-21977 rework r2, TC-CIPP-404: preventive hardening against the same
+    sequential-phrase defect class TC-GDAP-411 found in gdap-mcp -- a refusal wording
+    shaped like the real Microsoft Graph text, with the refusal phrase before a
+    bracketed, unspaced method name."""
+    rec = Recorder({"ExecCreateTAP": {
+        "Results": ["Converged UserCredentialPolicy does not allow creating or updating "
+                    "this authentication method. AuthMethodType [TemporaryAccessPass]."]
+    }})
+    args = {"tenantFilter": "example.com", "userId": USER_ID}
+    result = await _call(monkeypatch, rec, "cipp_create_tap", args)
+    assert result["error"]["code"] == "tap_policy_disabled"
+    assert "AuthMethodType [TemporaryAccessPass]" in result["error"]["message"]
+
+
 async def test_offboard_user_sends_resolved_upn_and_selected_flags(monkeypatch):
     rec = Recorder({"ListUsers": [USER_ROW], "ExecOffboardUser": {"Results": ["Offboarding task queued"]}})
     args = {
