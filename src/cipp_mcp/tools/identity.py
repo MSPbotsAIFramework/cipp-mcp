@@ -71,14 +71,28 @@ _PREMIUM = re.compile(
     r"RequestFromNonPremiumTenant|(?:doesn't|does not|don't|do not) have (?:a |an )?premium licen[cs]e|premium licen[cs]e is required",
     re.IGNORECASE,
 )
-# PRD-21977: Microsoft/CIPP does not publicly document the exact wording for a TAP-disabled
-# refusal (tech design OQ3/OQ4) -- best-effort, case-insensitive text match against
-# ExecCreateTAP's Results, corrected once the real text is seen on a live CIPP call
-# (TC-CIPP-402). A failure that doesn't match falls through to the generic "failed" shape
-# every other write tool in this file already returns -- a worse message, not a wrong one.
-_TAP_POLICY_DISABLED = re.compile(
-    r"temporary access pass.*(disab|not enabled|not allowed|turned off)", re.IGNORECASE
-)
+# PRD-21977 rework r2 (TC-CIPP-404): gdap-mcp's matching sequential-phrase regex proved
+# wrong against the real Microsoft wording observed on 2qmxyw (TC-GDAP-411) -- "Converged
+# UserCredentialPolicy does not allow creating or updating this authentication method.
+# AuthMethodType [TemporaryAccessPass]." -- the method name has no spaces and sits in
+# brackets, and the refusal phrase comes *before* the name, not after it. CIPP's own live
+# wire text for this refusal has never been observed (CIPP is not connected on INT,
+# TC-CIPP-402/OQ4 remains open), so this is preventive hardening against the same defect
+# class: checking for the method name and a refusal word independently -- regardless of
+# order or spacing -- instead of requiring one fixed phrase. A failure that doesn't match
+# falls through to the generic "failed" shape every other write tool in this file already
+# returns -- a worse message, not a wrong one.
+_TAP_METHOD_NAME = re.compile(r"temporary\s*access\s*pass", re.IGNORECASE)
+_TAP_REFUSAL_WORD = re.compile(r"disab|not enabled|not allow|turned off", re.IGNORECASE)
+
+
+def _tap_policy_disabled_text(results: list[str]) -> str | None:
+    """CIPP's own Results text when it names the TAP method and a refusal word
+    (independently of order -- see PRD-21977 rework r2 above), else None."""
+    for r in results:
+        if _TAP_METHOD_NAME.search(r) and _TAP_REFUSAL_WORD.search(r):
+            return r
+    return None
 
 
 def _outcome(payload: Any, ok_status: str, ok_message: str, fail_prefix: str, **extra: Any) -> dict:
@@ -344,7 +358,7 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
             # flags: CIPP's policy-disabled wording ("disabled by ... Policy") does not
             # itself contain any of _FAILURE's fail/error/could not/... substrings, so a
             # real refusal would otherwise read as success.
-            disabled = next((r for r in results if _TAP_POLICY_DISABLED.search(r)), None)
+            disabled = _tap_policy_disabled_text(results)
             if disabled is not None:
                 return error_envelope("tap_policy_disabled", disabled, False)
             return _outcome(
